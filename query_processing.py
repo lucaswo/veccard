@@ -1,4 +1,7 @@
+import numpy as np
+
 import random
+import re
 
 # Helper function.
 # Returns either a string that represents a conjunction of predicates for attribute "attr" in SQL syntax.
