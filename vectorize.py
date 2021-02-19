@@ -122,34 +122,34 @@ def prepare_data_structures(min_max, max_bucket_count):
 
 #helper function
 def add_simplepred_to_featurevec(attr_feature_vec, val_bucket_idx, attr, op, val, min_max, atomar_buckets, bounds, not_values):
-    if (op == "="):
+    if op == "=" or op == "IS":
         if attr_feature_vec[val_bucket_idx] == 1:
             attr_feature_vec[val_bucket_idx] = 1 if atomar_buckets[attr] else 0.5
         attr_feature_vec[0 : val_bucket_idx] = 0
         attr_feature_vec[val_bucket_idx+1 : -1] = 0
         bounds[attr][0] = val
         bounds[attr][1] = val+1
-    elif (op == ">"):
+    elif op == ">":
         if attr_feature_vec[val_bucket_idx] == 1:
             attr_feature_vec[val_bucket_idx] = 0 if atomar_buckets[attr] else 0.5
         attr_feature_vec[0 : val_bucket_idx] = 0
         bounds[attr][0] = max(bounds[attr][0], min(val+1, min_max[attr][1]))
-    elif (op == "<"):
+    elif op == "<":
         if attr_feature_vec[val_bucket_idx] == 1:
             attr_feature_vec[val_bucket_idx] = 1 if atomar_buckets[attr] else 0.5
         attr_feature_vec[val_bucket_idx+1 : -1] = 0
         bounds[attr][1] = min(bounds[attr][1], max(val-1, min_max[attr][0]))
-    elif (op == "<="):
+    elif op == "<=":
         if attr_feature_vec[val_bucket_idx] == 1:
             attr_feature_vec[val_bucket_idx] = 1 if atomar_buckets[attr] else 0.5
         attr_feature_vec[val_bucket_idx+1 : -1] = 0
         bounds[attr][1] = min(bounds[attr][1], val)
-    elif (op == ">="):
+    elif op == ">=":
         if attr_feature_vec[val_bucket_idx] == 1:
             attr_feature_vec[val_bucket_idx] = 1 if atomar_buckets[attr] else 0.5
         attr_feature_vec[0 : val_bucket_idx] = 0
         bounds[attr][0] = max(bounds[attr][0], val)
-    elif (op == "<>"):
+    elif op == "<>" or op == "!=":
         if attr_feature_vec[val_bucket_idx] == 1:
             attr_feature_vec[val_bucket_idx] = 0 if atomar_buckets[attr] else 0.5
         not_values[attr].append(val)
@@ -181,16 +181,7 @@ def add_compoundpred_to_featurevec (simple_predicates, vec, min_max, atomar_buck
     return vec
 
 def vectorize_attribute_domains_complex_query(query_str, min_max, encoders, max_bucket_count = 128):
-    operators = {
-        "=": [0,1,0],
-        ">": [0,0,1],
-        "<": [1,0,0],
-        "<=": [1,1,0],
-        ">=": [0,1,1],
-        "<>": [1,0,1],
-        "IS": [0,1,0]
-    }
-
+    query_str = query_str.replace("NULL", "-1").replace("IS NOT", "<>")
     feature_vectors, atomar_buckets, bounds, not_values = prepare_data_structures(min_max, max_bucket_count)
 
     complex_query = query_str.split("WHERE", maxsplit=1)[1]
@@ -218,15 +209,7 @@ def vectorize_attribute_domains_complex_query(query_str, min_max, encoders, max_
 
 
 def vectorize_attribute_domains_no_disjunctions(query_str, min_max, encoders, max_bucket_count = 128):
-    operators = {
-        "=": [0,1,0],
-        ">": [0,0,1],
-        "<": [1,0,0],
-        "<=": [1,1,0],
-        ">=": [0,1,1],
-        "<>": [1,0,1],
-        "IS": [0,1,0]
-    }
+    query_str = query_str.replace("NULL", "-1").replace("IS NOT", "<>")
     feature_vectors, atomar_buckets, bounds, not_values = prepare_data_structures(min_max, max_bucket_count)
 
     complex_query = query_str.split("WHERE", maxsplit=1)[1]
