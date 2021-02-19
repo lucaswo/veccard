@@ -1,0 +1,1 @@
+{"title t": {"t.kind_id": [1, 8, 1], "t.production_year": [1874, 2115, 1]}, "movie_info mi": {"mi.info_type_id": [1, 113, 1]}, "movie_info_idx mi_idx": {"mi_idx.info_type_id": [1, 113, 1]}, "cast_info ci": {"ci.role_id": [1, 11, 1]}, "movie_keyword mk": {"mk.keyword_id": [1, 236627, 1]}, "movie_companies mc": {"mc.company_id": [1, 362131, 1], "mc.company_type_id": [1, 2, 1]}}
