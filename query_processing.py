@@ -57,9 +57,6 @@ def get_conjunction_for_attr(attr,
     conjunctive_pred_string = " AND ".join(p for p in preds)
     return conjunctive_pred_string
 
-
-
-
 def generate_queries_conjunctive(cur, n_queries, min_max, encoders,
                                  vectorize_query_f = None,
                                  max_not_equal_preds = 5,
@@ -106,9 +103,6 @@ def generate_queries_conjunctive(cur, n_queries, min_max, encoders,
         vectors = [vectorize_query_f(q, min_max, encoders) for q in queries_list]
     
     return queries_list, vectors, cardinalities_list
-
-
-
 
 def generate_queries_complex(cur, n_queries, min_max, encoders,
                                  vectorize_query_f = None,
@@ -161,38 +155,92 @@ def generate_queries_complex(cur, n_queries, min_max, encoders,
 
     return queries_list, vectors, cardinalities_list
 
+def generate_queries_local(cur, n_queries, min_max, encoders, tables, join_ids, cube=False, 
+                           cube_columns=None, trad_est=False):
+    SQL_set = set()
+    SQL0_set = set()
+    SQL = []
+    cardinalities = []
+    estimates = []
+    if len(tables) > 1:
+        sql_body = """SELECT * FROM {} WHERE {} AND {};""".format(",".join(tables), "=".join(join_ids), "{}")
+    else:
+        sql_body = """SELECT * FROM {} WHERE {};""".format(",".join(tables), "{}")
+    if cube:
+        sql_body_count_cube = """SELECT COALESCE(SUM(count), 0) FROM cube{} WHERE {};""".format(cube, "{}")
+    sql_body_count = """SELECT count(*) FROM tmpview{} WHERE {};""".format(cube, "{}")
+    
+    total_columns = len(min_max)
+    vectors = np.ndarray((n_queries, total_columns*4))
+    columns = list(min_max.keys())
+    count = 0
+    while len(SQL) < n_queries:
+        num_of_predictates = np.random.choice(range(1,total_columns+1))#, 
+        #                                      p=[0.3, 0.3, 0.2, 0.1, 0.025, 0.025, 0.025, 0.025])
+        selected_predicates = np.random.choice(range(total_columns), size=num_of_predictates, replace=False)
+        selected_predicates = [columns[i] for i in selected_predicates]
+        
+        selected_values = []
+        for pred in selected_predicates:
+            if pred in encoders.keys():
+                sel = np.random.randint(len(encoders[pred].classes_))
+                sel = encoders[pred].classes_[sel]
+            else:
+                choices = np.arange(min_max[pred][0], min_max[pred][1]+1, min_max[pred][2])
+                sel = np.random.choice(choices)
+            selected_values.append(sel)
+        
+        #[[0,0,1], [0,1,0], [1,0,0], [1,0,1], [0,1,1], [1,1,0]]
+        # <>=
+        selected_operators = np.random.choice(["=", ">", "<", "<=", ">=", "!="], size=num_of_predictates)
+        #selected_operators = np.random.choice(["=", ">", "<"], size=num_of_predictates)
+        #selected_operators = ["=" if "id" not in sp else np.random.choice(["=", ">", "<", "<=", ">=", "!="]) 
+        #                      for sp in selected_predicates]
+        #selected_operators = [np.random.choice(["IS", "IS NOT"]) if selected_values[i] == "-1" 
+        #                      or selected_values == -1 else x for i,x in enumerate(selected_operators)]
+        selected_operators = ["IS" if selected_values[i] == "-1" or selected_values == -1 else x 
+                              for i,x in enumerate(selected_operators)]
+        
+        predicates_str = " AND ".join([" ".join([str(p), str(o), str(v) if not isinstance(v,str) or v == "-1"
+                                                      else "'{}'".format(v)]) for p,o,v in zip(selected_predicates,
+                                                                                               selected_operators, 
+                                                                                               selected_values)])
+        sql = sql_body.format(predicates_str)
+        #print(selected_predicates, cube_columns)
+        if not set(selected_predicates) - set(cube_columns):
+            sql_count = sql_body_count_cube.format(predicates_str)
+        else:
+            sql_count = sql_body_count.format(predicates_str)
 
-
-
-min_max = {
-    "A" : (0, 100, 1),
-    "B" : (2, 777, 1),
-    "C" : (7, 40, 1)
-}
-
-encoders = {}
-
-config = {"view_name" : "TABLENAME"}
-
-class SqlHandleMock:
-    def execute(x):
-        None
-    def getchone():
-        return [77]
-
-mock_cur = SqlHandleMock
-mock_vectorizer = lambda x, y, z: [0,1,1]
-
-Q, V, C = generate_queries_conjunctive(mock_cur, 5, min_max, encoders, mock_vectorizer)
-print("Arbitrary conjunction queries:")
-for q in Q:
-    print(q)
-
-print("\n\n\n")
-Q, V, C = generate_queries_complex(mock_cur, 5, min_max, encoders,
-                                   null_pred_prob=0.2,
-                                   neq_preds_in_range_pred=False)
-print("Complex queries:")
-for q in Q:
-    print(q)
-
+        check_len = len(SQL_set)
+        #sql = sql.replace("-1", "NULL")
+        #sql_count = sql_count.replace("-1", "NULL")
+        SQL_set.add(sql)
+        if check_len != len(SQL_set) and sql not in SQL0_set:
+            cur.execute(sql_count)
+            card = int(cur.fetchone()[0])
+            
+            if card > 0:
+                SQL.append(sql)
+                cardinalities.append(card)
+                vectors[len(SQL)-1] = vectorize_query(sql_count, min_max, encoders)
+                
+                if trad_est:
+                    cur.execute("EXPLAIN {}".format(sql))
+                    est = cur.fetchone()[0]
+                    est = int(re.findall(r"rows=(\d+)", est)[0])
+                    estimates.append(est)
+                
+                #if not len(SQL) % 1000:
+                #    print(len(SQL))
+            else:
+                SQL0_set.add(sql)
+                SQL_set.remove(sql)
+            
+        count += 1
+    
+    print(count)
+    if trad_est:
+        return SQL, vectors, cardinalities, estimates
+    else:
+        return SQL, vectors, cardinalities
