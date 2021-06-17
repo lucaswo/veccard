@@ -9,7 +9,7 @@ import json
 import re
 import copy
 
-def vectorize_query_local(query_str, min_max, encoders):
+def vectorize_query_local(query_str, min_max, encoders, *args, **kwargs):
     query_str = query_str.replace("NULL", "-1").replace("IS NOT", "<>")
     total_columns = len(min_max)
     vector = np.zeros(total_columns*4)
@@ -41,7 +41,7 @@ def vectorize_query_local(query_str, min_max, encoders):
     
     return vector
 
-def vectorize_query_range(query_str, min_max, encoders):
+def vectorize_query_range(query_str, min_max, encoders, *args, **kwargs):
     query_str = query_str.replace("NULL", "-1").replace("IS NOT", "<>")
     total_columns = len(min_max)
     vector = np.zeros(total_columns*6)
@@ -85,7 +85,8 @@ def vectorize_query_range(query_str, min_max, encoders):
         
         offset = 0
         # only upper and lower -> offset = 0 then offset = 3
-        for op, bound in limits:
+        # limits[:2] contains lower and upper bound (limit[2:] contains <> constraints)
+        for op, bound in limits[:2]:
             idx = list(sorted(min_max.keys())).index(pred)
             
             vector[idx*6+offset:idx*6+offset+2] = operators[op]
@@ -180,7 +181,7 @@ def add_compoundpred_to_featurevec (simple_predicates, vec, min_max, atomar_buck
                                      atomar_buckets, bounds, not_values)
     return vec
 
-def vectorize_attribute_domains_complex_query(query_str, min_max, encoders, max_bucket_count = 128):
+def vectorize_attribute_domains_complex_query(query_str, min_max, encoders, max_bucket_count = 64):
     query_str = query_str.replace("NULL", "-1").replace("IS NOT", "<>")
     feature_vectors, atomar_buckets, bounds, not_values = prepare_data_structures(min_max, max_bucket_count)
 
@@ -188,7 +189,8 @@ def vectorize_attribute_domains_complex_query(query_str, min_max, encoders, max_
     compound_predicates = re.findall('\(.*?\)', complex_query)
     compound_predicates = [cp.strip("()") for cp in compound_predicates]
     for cp in compound_predicates:
-        attr = cp[0]
+        #attr = cp[0]  # error. attribute name can be longer than one character
+        attr = cp.split(" ", maxsplit=1)[0]
         disjuncts = re.split("OR", cp)
         mergedvec = np.zeros(len(feature_vectors[attr]))
         for disjunct in disjuncts: # each disjunct is conjunction of simple predicates
@@ -208,7 +210,7 @@ def vectorize_attribute_domains_complex_query(query_str, min_max, encoders, max_
     
 
 
-def vectorize_attribute_domains_no_disjunctions(query_str, min_max, encoders, max_bucket_count = 128):
+def vectorize_attribute_domains_no_disjunctions(query_str, min_max, encoders, max_bucket_count = 64):
     query_str = query_str.replace("NULL", "-1").replace("IS NOT", "<>")
     feature_vectors, atomar_buckets, bounds, not_values = prepare_data_structures(min_max, max_bucket_count)
 
@@ -240,4 +242,5 @@ def vectorize_attribute_domains_no_disjunctions(query_str, min_max, encoders, ma
         feature_vectors[attr][-1] = queryrange / domainrange
 
     totalfeaturevec = np.concatenate(list(feature_vectors.values()))
+    #print(f"{totalfeaturevec=}")
     return totalfeaturevec
