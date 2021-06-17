@@ -1,7 +1,14 @@
-import numpy as np
-
 import random
 import re
+from argparse import ArgumentParser
+import psycopg2 as postgres
+import numpy as np
+import pandas as pd
+import json
+import pickle
+import time
+
+from vectorize import *
 
 # Helper function.
 # Returns either a string that represents a conjunction of predicates for attribute "attr" in SQL syntax.
@@ -61,7 +68,7 @@ def get_conjunction_for_attr(attr,
     return conjunctive_pred_string
 
 def generate_queries_conjunctive(cur, n_queries, min_max, encoders,
-                                 vectorize_query_f = None,
+                                 vectorize_query_f = vectorize_attribute_domains_no_disjunctions,
                                  max_not_equal_preds = 5,
                                  null_pred_prob = 0.0,
                                  neq_preds_in_range_pred = True):
@@ -92,13 +99,14 @@ def generate_queries_conjunctive(cur, n_queries, min_max, encoders,
         if sql_str in accepted_queries_set or sql_str in taboo_queries_set:
             continue
         cur.execute(sql_str)
-        query_result_card = cur.getchone()[0]
+        query_result_card = cur.fetchone()[0]
         if query_result_card == 0:
             taboo_queries_set.add(sql_str)
             continue
         accepted_queries_set.add(sql_str)
         queries_list.append(sql_str)
         cardinalities_list.append(query_result_card)
+        print(f"{len(accepted_queries_set)=} | {sql_str=} | {query_result_card=}")
     #END_WHILE
 
     vectors = []
@@ -108,7 +116,7 @@ def generate_queries_conjunctive(cur, n_queries, min_max, encoders,
     return queries_list, vectors, cardinalities_list
 
 def generate_queries_complex(cur, n_queries, min_max, encoders,
-                                 vectorize_query_f = None,
+                                 vectorize_query_f = vectorize_attribute_domains_complex_query,
                                  max_disjuncts = 3,
                                  max_not_equal_preds = 5,
                                  null_pred_prob = 0.0,
@@ -143,13 +151,14 @@ def generate_queries_complex(cur, n_queries, min_max, encoders,
         if sql_str in accepted_queries_set or sql_str in taboo_queries_set:
             continue
         cur.execute(sql_str)
-        query_result_card = cur.getchone()[0]
+        query_result_card = cur.fetchone()[0]
         if query_result_card == 0:
             taboo_queries_set.add(sql_str)
             continue
         accepted_queries_set.add(sql_str)
         queries_list.append(sql_str)
         cardinalities_list.append(query_result_card)
+        print(f"{len(accepted_queries_set)=} | {sql_str=} | {query_result_card=}")
     #END_WHILE
 
     vectors = []
@@ -247,3 +256,70 @@ def generate_queries_local(cur, n_queries, min_max, encoders, tables, join_ids, 
         return SQL, vectors, cardinalities, estimates
     else:
         return SQL, vectors, cardinalities
+
+
+if __name__ == '__main__':
+    parser = ArgumentParser(description='Query processing for local models')
+    parser.add_argument("-c", "--configfile", type=str, help="path to config file", required=True)
+    mut_ex_group = parser.add_mutually_exclusive_group()
+    mut_ex_group.add_argument("-v", "--vectorize", action='store_true', help="just vectorize queries without sampling them")
+    #mut_ex_group.add_argument("-s", "--samplequeries", action='store_true', help="just sample queries (no vectorization)")  # not supported
+    args = parser.parse_args()
+
+    with open(args.configfile, "r") as config_file:
+        config = json.load(config_file)
+    print(config)
+
+    tablenames = "___".join(config["tables"])
+    with open("min_max_{}.json".format(tablenames), "r") as mm_file, \
+    open("encoders_{}.pkl".format(tablenames), "rb") as enc_file:
+        minmax = json.load(mm_file)
+        encoder = pickle.load(enc_file)
+
+    if args.vectorize:
+        queries = pd.read_csv(config["query_file"])
+        #vectors = np.ndarray((len(queries), len(minmax)*4))  # Magnus: lengths of vectors differs for different vectorizations
+        vectors = [None for i in range(0, len(queries))]
+        vectorize_query_func_ref = eval(config["vectorize_query_functionname"])
+        max_bucket_count = -1
+        if "max_bucket_count" in config:
+            max_bucket_count = config["max_bucket_count"]
+
+        start = time.time()
+        i = 0
+        for q in queries["SQL"]:
+            vectors[i] = vectorize_query_func_ref(q, minmax, encoder, max_bucket_count)
+            i += 1
+        end = time.time() - start
+        vectors = np.asarray(vectors)
+
+        print("Vectorized {} queries in {:.2f}s.".format(len(queries), end))
+
+        vectors = np.column_stack([vectors, queries["cardinality"]])
+        np.save(config["vector_file"], vectors)
+    else:
+        # change login data accordingly
+        conn = postgres.connect("dbname=testdatabase user=postgres password=postgres")
+        conn.set_session(autocommit=True)
+        cur = conn.cursor()
+
+        start = time.time()
+        generate_queries_func_ref = eval(config["generate_queries_functionname"])
+        #vectorize_query_func_ref = None
+        #    if args.samplequeries:
+        #        vectorize_query_func_ref = eval(config["vectorize_query_functionname"])
+        queries, vectors, card = generate_queries_func_ref(cur, config["number_of_queries"], minmax, encoder)
+        end = time.time() - start
+
+        print("Sampled {} queries in {:.2f}s.".format(len(queries), end))
+
+        if len(vectors) > 0:
+            vectors = np.column_stack([vectors, card])
+            np.save(config["vector_file"], vectors)
+
+        csv = pd.DataFrame({"SQL": queries, "cardinality" : card})
+        csv["cardinality"] = csv["cardinality"].astype(int)
+        csv.to_csv(config["query_file"], index=False)
+
+        conn.close()
+
