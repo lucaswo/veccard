@@ -1,0 +1,7 @@
+{
+    "tables": ["forest"],
+    "vector_file": "data/vectors__simple_min_three_attributes.npy",
+    "query_file": "data/queries__conjunctive_min_three_attributes.csv",
+    "vectorize_query_functionname": "vectorize_query_local",
+    "max_bucket_count": 64
+}

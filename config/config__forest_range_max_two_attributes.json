@@ -1,0 +1,7 @@
+{
+    "tables": ["forest"],
+    "vector_file": "data/vectors__range_max_two_attributes.npy",
+    "query_file": "data/queries__conjunctive_max_two_attributes.csv",
+    "vectorize_query_functionname": "vectorize_query_range",
+    "max_bucket_count": 64
+}

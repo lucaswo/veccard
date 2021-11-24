@@ -1,0 +1,7 @@
+{
+    "tables": ["forest"],
+    "vector_file": "data/vectors__complex_max_two_attributes.npy",
+    "query_file": "data/queries__complex_max_two_attributes.csv",
+    "vectorize_query_functionname": "vectorize_attribute_domains_complex_query",
+    "max_bucket_count": 64
+}
